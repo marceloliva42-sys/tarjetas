@@ -1,5 +1,5 @@
 // Guarda la app en el celular para que abra sin internet
-const CACHE = 'mis-tarjetas-v1';
+const CACHE = 'mis-tarjetas-v2';
 const ARCHIVOS = ['./', './index.html', './style.css', './app.js', './engine.js', './config.js',
   './vendor/supabase.js', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 self.addEventListener('install', e => {
@@ -16,4 +16,20 @@ self.addEventListener('fetch', e => {
   e.respondWith(fetch(e.request).then(r => {
     const copia = r.clone(); caches.open(CACHE).then(c => c.put(e.request, copia)); return r;
   }).catch(() => caches.match(e.request).then(r => r || caches.match('./index.html'))));
+});
+
+// Avisos del celular
+self.addEventListener('push', e => {
+  let d = { title: 'Mis Tarjetas', body: '' };
+  try { d = Object.assign(d, e.data.json()); } catch (_) { }
+  e.waitUntil(self.registration.showNotification(d.title, {
+    body: d.body, icon: './icon-192.png', badge: './icon-192.png', data: { url: d.url || './' }
+  }));
+});
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(ws => {
+    for (const w of ws) { if ('focus' in w) return w.focus(); }
+    return self.clients.openWindow(e.notification.data && e.notification.data.url || './');
+  }));
 });

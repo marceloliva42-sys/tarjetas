@@ -349,6 +349,40 @@
     } finally { syncing = false; }
   }
 
+  // ---------- avisos (notificaciones) ----------
+  function b64(s) {
+    var p = '='.repeat((4 - s.length % 4) % 4), b = (s + p).replace(/-/g, '+').replace(/_/g, '/'), r = atob(b), o = new Uint8Array(r.length);
+    for (var i = 0; i < r.length; i++) o[i] = r.charCodeAt(i); return o;
+  }
+  function soportaAvisos() { return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window; }
+  async function suscripcion() {
+    if (!soportaAvisos()) return null;
+    var reg = await navigator.serviceWorker.ready; return reg.pushManager.getSubscription();
+  }
+  async function refrescarBotonAvisos() {
+    var b = $('mAvisos'); if (!soportaAvisos()) { b.textContent = 'Avisos: este navegador no los permite'; return; }
+    try { var s = await suscripcion(); b.textContent = s ? 'Avisos activados (tocá para desactivar)' : 'Activar avisos en este equipo'; b.dataset.on = s ? '1' : ''; } catch (e) { b.textContent = 'Activar avisos en este equipo'; }
+  }
+  async function alternarAvisos() {
+    if (!soportaAvisos()) return toast('Este navegador no permite avisos. Probá desde la app instalada en Chrome.');
+    if (!navigator.onLine) return toast('Necesitás internet para esto.');
+    try {
+      var reg = await navigator.serviceWorker.ready, sub = await reg.pushManager.getSubscription();
+      if (sub) {
+        var ep = sub.endpoint; await sub.unsubscribe();
+        await sb.from('push_subs').delete().eq('endpoint', ep);
+        toast('Avisos desactivados en este equipo'); return refrescarBotonAvisos();
+      }
+      var perm = await Notification.requestPermission();
+      if (perm !== 'granted') return toast('No diste permiso. Podés activarlo en los ajustes del navegador.');
+      sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64(window.APP_CONFIG.vapid) });
+      var j = sub.toJSON();
+      var r = await sb.from('push_subs').upsert({ endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth }, { onConflict: 'endpoint' });
+      if (r.error) { await sub.unsubscribe(); return toast('No se pudo guardar el aviso: ' + r.error.message); }
+      toast('Avisos activados en este equipo'); refrescarBotonAvisos();
+    } catch (e) { toast('No se pudo activar: ' + (e && e.message || e)); }
+  }
+
   // ---------- sesión ----------
   function mostrarLogin(msg) { $('app').hidden = true; $('auth').hidden = false; $('authMsg').textContent = msg || ''; user = null; S = null; }
   function entrar(u) {
@@ -391,7 +425,8 @@
   });
   $('fAct').onclick = function () { filtro = 'ACTIVO'; render(); };
   $('fTod').onclick = function () { filtro = 'TODOS'; render(); };
-  $('menu').onclick = function () { $('dmenu').showModal(); };
+  $('menu').onclick = function () { refrescarBotonAvisos(); $('dmenu').showModal(); };
+  $('mAvisos').onclick = alternarAvisos;
   $('mCerrar').onclick = function () { $('dmenu').close(); };
   $('mSync').onclick = function () { $('dmenu').close(); sincronizar(); };
   $('mTarjeta').onclick = function () { var t = tarjetaActual(); if (!t) return toast('Todavía no hay tarjetas.'); $('dmenu').close(); abrirTarjeta(t); };
