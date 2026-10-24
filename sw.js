@@ -1,5 +1,5 @@
 // Guarda la app en el celular para que abra sin internet
-const CACHE = 'mis-tarjetas-v2';
+const CACHE = 'mis-tarjetas-v3';
 const ARCHIVOS = ['./', './index.html', './style.css', './app.js', './engine.js', './config.js',
   './vendor/supabase.js', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 self.addEventListener('install', e => {

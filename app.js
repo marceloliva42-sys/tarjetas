@@ -349,6 +349,13 @@
     } finally { syncing = false; }
   }
 
+  // ---------- tamaño de letra ----------
+  var TAM = [['Normal', 1], ['Grande', 1.25], ['Muy grande', 1.5]];
+  function tamActual() { var i = 1; try { var v = parseInt(localStorage.getItem('mt_tam'), 10); if (v >= 0 && v < TAM.length) i = v; } catch (e) { } return i; }
+  function aplicarTam() { var i = tamActual(); document.documentElement.style.setProperty('--zoom', TAM[i][1]); var b = $('mLetra'); if (b) b.textContent = 'Tamaño de letra: ' + TAM[i][0] + ' (tocá para cambiar)'; }
+  function cambiarTam() { var i = (tamActual() + 1) % TAM.length; try { localStorage.setItem('mt_tam', i); } catch (e) { } aplicarTam(); }
+  aplicarTam();
+
   // ---------- avisos (notificaciones) ----------
   function b64(s) {
     var p = '='.repeat((4 - s.length % 4) % 4), b = (s + p).replace(/-/g, '+').replace(/_/g, '/'), r = atob(b), o = new Uint8Array(r.length);
@@ -427,6 +434,7 @@
   $('fTod').onclick = function () { filtro = 'TODOS'; render(); };
   $('menu').onclick = function () { refrescarBotonAvisos(); $('dmenu').showModal(); };
   $('mAvisos').onclick = alternarAvisos;
+  $('mLetra').onclick = cambiarTam;
   $('mCerrar').onclick = function () { $('dmenu').close(); };
   $('mSync').onclick = function () { $('dmenu').close(); sincronizar(); };
   $('mTarjeta').onclick = function () { var t = tarjetaActual(); if (!t) return toast('Todavía no hay tarjetas.'); $('dmenu').close(); abrirTarjeta(t); };
