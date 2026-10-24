@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0f766e">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Mis Tarjetas</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<section id="auth" hidden>
+  <h1>Mis Tarjetas</h1>
+  <div class="sub">Entrá con tu correo y contraseña. Si es la primera vez, tocá Crear cuenta.</div>
+  <label for="email">Correo</label><input id="email" type="email" autocomplete="email" inputmode="email">
+  <label for="pass">Contraseña</label><input id="pass" type="password" autocomplete="current-password">
+  <div class="hint">Mínimo 6 caracteres.</div>
+  <div class="acts"><button id="bCrear">Crear cuenta</button><button id="bEntrar" class="go">Entrar</button></div>
+  <div id="authMsg" class="hint" style="margin-top:12px;color:var(--bad)"></div>
+</section>
+
+<section id="app" hidden>
+  <header><div><h1>Mis Tarjetas</h1><div class="sub" id="hoy"></div><div class="estado" id="estado"></div></div><button class="icon" id="menu">⋯</button></header>
+  <div class="wrap">
+    <div class="banner" id="banner"></div>
+    <div class="tabs" id="tabs"></div>
+    <div id="vacio" class="empty" hidden>
+      Todavía no tenés tarjetas.<div class="acts"><button class="go" id="bPrimera">Agregar mi primera tarjeta</button></div>
+    </div>
+    <div id="detalle">
+      <div class="grid" id="resumen"></div>
+      <h2>Saldo por mes <span class="sub">(positivo = se debe)</span></h2>
+      <div class="meses" id="meses"></div>
+      <div class="bar"><h2 style="margin:0;flex:1">Gastos</h2>
+        <div class="seg"><button id="fAct" class="on">Activos</button><button id="fTod">Todos</button></div></div>
+      <div id="lista"></div>
+    </div>
+  </div>
+  <button class="fab" id="nuevo">+ Cargar</button>
+</section>
+
+<dialog id="dlg">
+  <b id="dtitulo">Cargar gasto</b>
+  <label for="tipo">Tipo</label>
+  <select id="tipo"><option>COMPRA</option><option>DEBITO</option><option>PAGO</option></select>
+  <label for="desc">Descripción</label><input id="desc" autocomplete="off">
+  <label for="monto">Monto</label><input id="monto" inputmode="decimal" placeholder="0">
+  <label for="fecha">Fecha</label><input id="fecha" type="date">
+  <div id="bcuotas"><label for="cuotas">Cuotas</label><input id="cuotas" inputmode="numeric" value="1">
+    <div class="hint">DEBITO automático: dejá 1. Suscripción en dólares: 100.</div></div>
+  <div class="acts">
+    <button id="cancel">Cancelar</button>
+    <button class="del" id="borrar" hidden>Eliminar</button>
+    <button class="go" id="guardar">Guardar</button>
+  </div>
+</dialog>
+
+<dialog id="dmenu">
+  <b>Opciones</b>
+  <div class="hint" id="quien"></div>
+  <div class="acts col">
+    <button id="mSync">Sincronizar ahora</button>
+    <button id="mTarjeta">Editar esta tarjeta</button>
+    <button id="mNueva">Agregar otra tarjeta</button>
+    <button id="mImp">Importar datos</button>
+    <button id="mExp">Exportar a Excel</button>
+    <button id="mSalir" class="del">Cerrar sesión</button>
+    <button id="mCerrar">Cerrar</button>
+  </div>
+  <input type="file" id="file" accept=".json,.csv,text/csv,application/json" hidden>
+</dialog>
+
+<dialog id="dtar">
+  <b id="ttitulo">Tarjeta</b>
+  <label for="tnombre">Nombre</label><input id="tnombre" autocomplete="off">
+  <label for="tcred">Crédito total</label><input id="tcred" inputmode="decimal">
+  <label for="tdol">Valor del dólar (opcional)</label><input id="tdol" inputmode="decimal">
+  <div id="tnuevo">
+    <label for="tcorte">Fecha del próximo corte</label><input id="tcorte" type="date">
+    <label for="tdias">Días entre el corte y el vencimiento</label><input id="tdias" inputmode="numeric" value="8">
+    <div class="hint">Los cortes se arman mes a mes. Después podés cambiar cada fecha.</div>
+  </div>
+  <div class="acts col">
+    <button id="tFechas" hidden>Cambiar fechas de corte y vencimiento</button>
+    <button class="del" id="tBorrar" hidden>Eliminar tarjeta</button>
+  </div>
+  <div class="acts"><button id="tCancel">Cancelar</button><button class="go" id="tGuardar">Guardar</button></div>
+</dialog>
+
+<dialog id="dfec">
+  <b>Fechas de corte y vencimiento</b>
+  <div class="hint">Corte · Vencimiento</div>
+  <div class="fechas" id="fechasLista"></div>
+  <div class="acts"><button id="fMas">+ Un mes más</button></div>
+  <div class="acts"><button id="fCancel">Cancelar</button><button class="go" id="fGuardar">Guardar</button></div>
+</dialog>
+
+<dialog id="ddup">
+  <b>Posibles duplicados</b>
+  <div class="hint">Estos gastos del archivo se parecen a otros que ya tenés. Tildá los que sí querés agregar.</div>
+  <div id="dupLista"></div>
+  <div class="acts"><button id="dupTodos">Tildar todos</button><button id="dupNinguno">Ninguno</button></div>
+  <div class="acts"><button id="dupCancel">Cancelar importación</button><button class="go" id="dupOk">Confirmar</button></div>
+</dialog>
+
+<script src="vendor/supabase.js"></script>
+<script src="config.js"></script>
+<script src="engine.js"></script>
+<script src="app.js"></script>
+<script>if('serviceWorker' in navigator){navigator.serviceWorker.register('sw.js').catch(function(){})}</script>
+</body>
+</html>
