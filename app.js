@@ -123,6 +123,12 @@
     return { compras: compras, mant: c.mant, iva: iva, sello: sello, total: c.mant + iva + sello };
   }
 
+  function tarjetaMasLejana() {
+    var best = null;
+    S.tarjetas.forEach(function (t) { if (!t.cortes.length) return; var r = motor(t); if (r.proxCorte && (!best || r.proxCorte > best.c)) best = { id: t.id, c: r.proxCorte }; });
+    return best;
+  }
+
   // ---------- pantalla principal ----------
   var MESES = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC'];
   function render() {
@@ -197,6 +203,8 @@
 
   // ---------- tarjetas ----------
   var tarEdit = null;
+  // la sincronización puede reemplazar el objeto de la tarjeta mientras el cuadro está abierto: siempre buscar el actual por id
+  function tEdit() { return tarEdit ? (S.tarjetas.filter(function (x) { return x.id === tarEdit.id; })[0] || tarEdit) : null; }
   function abrirTarjeta(t) {
     tarEdit = t || null;
     $('ttitulo').textContent = t ? 'Editar tarjeta' : 'Agregar tarjeta';
@@ -217,7 +225,7 @@
     if (!isFinite(mant) || mant < 0) return toast('El mantenimiento tiene que ser un número.');
     if (!isFinite(iva) || iva < 0) return toast('El IVA tiene que ser un número.');
     if (!isFinite(sello) || sello < 0) return toast('El sello tiene que ser un número.');
-    var t = tarEdit;
+    var t = tEdit();
     if (!t) {
       var corte = $('tcorte').value, dias = parseInt($('tdias').value, 10);
       if (!corte) return toast('Falta la fecha del próximo corte.');
@@ -231,20 +239,20 @@
     extender(t, hoyISO()); marcarT(t); $('dtar').close(); render();
   }
   function abrirFechas() {
-    var t = tarEdit; if (!t) return;
+    var t = tEdit(); if (!t) return;
     $('fechasLista').innerHTML = t.cortes.map(function (c, i) {
       return '<input type="date" data-k="c" data-i="' + i + '" value="' + c + '"><input type="date" data-k="p" data-i="' + i + '" value="' + t.pagos[i] + '">';
     }).join('');
     $('dfec').showModal();
   }
   function guardarFechas() {
-    var t = tarEdit, cs = [], ps = [], ins = $('fechasLista').querySelectorAll('input');
+    var t = tEdit(), cs = [], ps = [], ins = $('fechasLista').querySelectorAll('input');
     for (var j = 0; j < ins.length; j++) { var i = +ins[j].dataset.i; (ins[j].dataset.k === 'c' ? cs : ps)[i] = ins[j].value; }
     for (var k = 0; k < cs.length; k++) { if (!cs[k] || !ps[k]) return toast('Hay una fecha vacía.'); if (k && cs[k] <= cs[k - 1]) return toast('Los cortes tienen que ir en orden.'); }
     t.cortes = cs; t.pagos = ps; marcarT(t); $('dfec').close(); $('dtar').close(); render();
   }
   function borrarTarjeta() {
-    var t = tarEdit; S.tarjetas = S.tarjetas.filter(function (x) { return x.id !== t.id; });
+    var t = tEdit(); S.tarjetas = S.tarjetas.filter(function (x) { return x.id !== t.id; });
     S.gastos = S.gastos.filter(function (g) { if (g.tarjeta_id === t.id) { delete S.out.g[g.id]; return false; } return true; });
     delete S.out.t[t.id]; S.out.dt.push(t.id); guardar(); actual = null; $('dtar').close(); $('dmenu').close(); render(); pedirSync();
   }
@@ -414,6 +422,7 @@
   function pendientes() { return Object.keys(S.out.t).length + Object.keys(S.out.g).length + S.out.dt.length; }
   async function sincronizar() {
     if (syncing || !user || !S) return;
+    if (document.querySelector('dialog[open]')) return; // con un cuadro abierto no se toca nada: se sincroniza al cerrarlo
     if (!navigator.onLine) { setEstado(pendientes() ? 'Sin internet · ' + pendientes() + ' cambios por subir' : 'Sin internet'); return; }
     syncing = true; setEstado('Sincronizando…');
     try {
@@ -507,6 +516,7 @@
     user = u; S = cargar(); $('auth').hidden = true; $('app').hidden = false; $('quien').textContent = 'Sesión: ' + (u.email || '');
     S.tarjetas.forEach(function (t) { if (extender(t, hoyISO())) marcarT(t); });
     var ord = S.tarjetas.slice().sort(function (a, b) { return (a.orden - b.orden); }); actual = ord.length ? ord[0].id : null;
+    var mejor = tarjetaMasLejana(); if (mejor) actual = mejor.id;
     render(); setEstado(pendientes() ? 'Hay cambios por subir' : ''); sincronizar();
   }
   async function login(crear) {
@@ -572,7 +582,7 @@
   $('fCancel').onclick = function () { $('dfec').close(); };
   $('fGuardar').onclick = guardarFechas;
   $('fMas').onclick = function () {
-    var t = tarEdit; var uc = t.cortes[t.cortes.length - 1], up = t.pagos[t.pagos.length - 1];
+    var t = tEdit(); var uc = t.cortes[t.cortes.length - 1], up = t.pagos[t.pagos.length - 1];
     var n = addMonths(uc, 1); t.cortes.push(n); t.pagos.push(addDays(n, diffDays(uc, up))); abrirFechas();
   };
   dosPasos($('tBorrar'), 'Tocá otra vez: se borra con todos sus gastos', borrarTarjeta);
@@ -586,6 +596,7 @@
   $('bEntrar').onclick = function () { login(false); };
   $('bCrear').onclick = function () { login(true); };
   $('pass').addEventListener('keydown', function (e) { if (e.key === 'Enter') login(false); });
+  document.addEventListener('close', function (e) { if (e.target && e.target.tagName === 'DIALOG' && user) pedirSync(); }, true);
   window.addEventListener('online', sincronizar);
   window.addEventListener('offline', function () { setEstado('Sin internet · se guarda en el celular'); });
   document.addEventListener('visibilitychange', function () { if (!document.hidden && user) { render(); sincronizar(); } });
