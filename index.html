@@ -32,6 +32,7 @@
     </div>
     <div id="detalle">
       <div class="grid" id="resumen"></div>
+      <div class="estim" id="estim" hidden></div>
       <h2>Saldo por mes <span class="sub">(positivo = se debe)</span></h2>
       <div class="meses" id="meses"></div>
       <div class="bar"><h2 style="margin:0;flex:1">Gastos</h2>
@@ -65,6 +66,7 @@
     <button id="mSync">Sincronizar ahora</button>
     <button id="mAvisos">Avisos en este equipo</button>
     <button id="mLetra">Tamaño de letra</button>
+    <button id="mResumen">Cerrar resumen (cargar diferencia)</button>
     <button id="mTarjeta">Editar esta tarjeta</button>
     <button id="mNueva">Agregar otra tarjeta</button>
     <button id="mImp">Importar datos</button>
@@ -80,6 +82,15 @@
   <label for="tnombre">Nombre</label><input id="tnombre" autocomplete="off">
   <label for="tcred">Crédito total</label><input id="tcred" inputmode="decimal">
   <label for="tdol">Valor del dólar (opcional)</label><input id="tdol" inputmode="decimal">
+  <div class="cfgbox">
+    <b>Cargos automáticos (estimación)</b>
+    <div class="hint">Solo sirven para estimar el próximo resumen. No cambian ningún saldo.</div>
+    <label for="tmant">Mantenimiento mensual ($)</label><input id="tmant" inputmode="decimal" placeholder="0">
+    <label for="tiva">IVA sobre el mantenimiento (%)</label><input id="tiva" inputmode="decimal" placeholder="21">
+    <label for="tsello">Sello sobre las compras (%)</label><input id="tsello" inputmode="decimal" placeholder="0">
+    <label for="tdesde">Se usan desde el corte del</label><input id="tdesde" type="date">
+    <div class="hint" id="tcfgAviso"></div>
+  </div>
   <div id="tnuevo">
     <label for="tcorte">Fecha del próximo corte</label><input id="tcorte" type="date">
     <label for="tdias">Días entre el corte y el vencimiento</label><input id="tdias" inputmode="numeric" value="8">
@@ -90,6 +101,16 @@
     <button class="del" id="tBorrar" hidden>Eliminar tarjeta</button>
   </div>
   <div class="acts"><button id="tCancel">Cancelar</button><button class="go" id="tGuardar">Guardar</button></div>
+</dialog>
+
+<dialog id="dres">
+  <b id="rtitulo">Cerrar resumen</b>
+  <div class="hint">Escribí el total que dice el PDF. La app calcula cuánto falta y lo carga como una línea DIFERENCIA.</div>
+  <label for="rmes">Resumen del corte</label><select id="rmes"></select>
+  <div class="calc" id="rcalc"></div>
+  <label for="rtotal">Total a pagar según el PDF ($)</label><input id="rtotal" inputmode="decimal" placeholder="0">
+  <div class="calc" id="rdif"></div>
+  <div class="acts"><button id="rCancel">Cancelar</button><button class="go" id="rGuardar">Cargar diferencia</button></div>
 </dialog>
 
 <dialog id="dfec">

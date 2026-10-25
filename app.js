@@ -48,6 +48,18 @@
     return parseFloat(s);
   }
 
+  // id fijo a partir de un texto: dos equipos que cierran el mismo resumen generan el mismo id
+  function idFijo(txt) {
+    var out = '';
+    for (var k = 0; k < 4; k++) {
+      var h = 0x811c9dc5 ^ (k * 0x9e3779b1);
+      for (var i = 0; i < txt.length; i++) { h ^= txt.charCodeAt(i); h = Math.imul(h, 16777619); h ^= h >>> 13; }
+      out += ('00000000' + (h >>> 0).toString(16)).slice(-8);
+    }
+    return out.slice(0, 8) + '-' + out.slice(8, 12) + '-5' + out.slice(13, 16) + '-a' + out.slice(17, 20) + '-' + out.slice(20, 32);
+  }
+  function r2(x) { return Math.round((x + Number.EPSILON * Math.sign(x)) * 100) / 100; }
+
   // ---------- estado local ----------
   var user = null, S = null, actual = null, filtro = 'ACTIVO', editId = null, syncing = false, syncTimer = null;
   function nuevoEstado() { return { tarjetas: [], gastos: [], out: { t: {}, g: {}, dt: [] } }; }
@@ -83,6 +95,34 @@
     }, hoyISO());
   }
 
+  // ---------- cargos automáticos (solo estimación) y cierre de resumen ----------
+  var REG_CARGO = /dif[ef]?erenc|impuest|interes|comis|cargo|mantenim/i;
+  function cfgDe(t) {
+    var c = t.config || {};
+    return { mant: Number(c.mant) || 0, iva: (c.iva === undefined || c.iva === '' || c.iva === null) ? 21 : Number(c.iva), sello: Number(c.sello) || 0, desde: c.desde || '' };
+  }
+  function desdeEf(t) {
+    var c = cfgDe(t); if (c.desde) return c.desde;
+    var h = hoyISO(), u = null; t.cortes.forEach(function (x) { if (x <= h) u = x; });
+    return u || t.cortes[0];
+  }
+  function esPago(g) { return g.tipo === 'PAGO' || (Number(g.monto) < 0 && Number(g.cuotas) === 1 && /pago/i.test(g.descripcion || '')); }
+  function comprasMes(t, r, i) {
+    var gs = gastosDe(t.id), s = 0;
+    r.filas.forEach(function (f, k) {
+      if (!f.meses) return; var g = gs[k];
+      if (esPago(g) || REG_CARGO.test(g.descripcion || '')) return;
+      if (f.meses[i] > 0) s += f.meses[i];
+    });
+    return s;
+  }
+  function estimarCargos(t, r, i) {
+    var c = cfgDe(t); if (!(c.mant || c.sello) || i < 0) return null;
+    if (t.cortes[i] < desdeEf(t)) return null;
+    var compras = comprasMes(t, r, i), iva = c.mant * c.iva / 100, sello = compras * c.sello / 100;
+    return { compras: compras, mant: c.mant, iva: iva, sello: sello, total: c.mant + iva + sello };
+  }
+
   // ---------- pantalla principal ----------
   var MESES = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC'];
   function render() {
@@ -102,6 +142,9 @@
       ['Gasto del mes', r.gastoMes == null ? '—' : fmt(r.gastoMes)], ['Próx. corte', fd(r.proxCorte)],
       ['Próx. vencimiento', fd(r.proxPago)], ['Total a pagar (acumulado)', fmt(r.total)]]
       .map(function (p) { return '<div class="k"><small>' + p[0] + '</small><b>' + p[1] + '</b></div>'; }).join('');
+    var est = r.idxMes >= 0 ? estimarCargos(t, r, r.idxMes) : null;
+    $('estim').hidden = !est;
+    if (est) $('estim').innerHTML = 'Cargos estimados del próximo resumen: <b>' + fmt(est.total) + '</b><span class="sub">mantenimiento ' + fmt(est.mant) + ' + IVA ' + fmt(est.iva) + ' + sello ' + fmt(est.sello) + ' (sobre compras de ' + fmt(est.compras) + '). Solo es una estimación: no cambia ningún saldo. Se confirma con “Cerrar resumen”.</span>';
     var pagarIdx = -1;
     for (var i = 0; i < r.saldo.length; i++) { if (t.cortes[i] <= hoy && r.saldo[i] > 0) { pagarIdx = i; break; } }
     $('meses').innerHTML = t.cortes.map(function (c, i) {
@@ -160,6 +203,9 @@
     $('tnombre').value = t ? t.nombre : ''; $('tcred').value = t ? t.credito : ''; $('tdol').value = t && t.dolar ? t.dolar : '';
     $('tnuevo').hidden = !!t; $('tFechas').hidden = !t; $('tBorrar').hidden = !t;
     $('tcorte').value = ''; $('tdias').value = 8;
+    var c = t ? cfgDe(t) : { mant: 0, iva: 21, sello: 0, desde: '' };
+    $('tmant').value = c.mant || ''; $('tiva').value = c.iva; $('tsello').value = c.sello || ''; $('tdesde').value = c.desde || '';
+    $('tcfgAviso').textContent = S.cfgOK ? '' : 'Esta configuración queda guardada en este equipo. Para que se comparta entre el celular y la notebook falta un paso en Supabase.';
     $('dtar').showModal();
   }
   function guardarTarjeta() {
@@ -167,6 +213,10 @@
     if (!nombre) return toast('Falta el nombre.');
     if (!isFinite(cred) || cred < 0) return toast('El crédito tiene que ser un número.');
     if (!isFinite(dol) || dol < 0) return toast('El valor del dólar tiene que ser un número.');
+    var mant = $('tmant').value.trim() ? num($('tmant').value) : 0, iva = $('tiva').value.trim() ? num($('tiva').value) : 21, sello = $('tsello').value.trim() ? num($('tsello').value) : 0;
+    if (!isFinite(mant) || mant < 0) return toast('El mantenimiento tiene que ser un número.');
+    if (!isFinite(iva) || iva < 0) return toast('El IVA tiene que ser un número.');
+    if (!isFinite(sello) || sello < 0) return toast('El sello tiene que ser un número.');
     var t = tarEdit;
     if (!t) {
       var corte = $('tcorte').value, dias = parseInt($('tdias').value, 10);
@@ -177,6 +227,7 @@
       S.tarjetas.push(t); actual = t.id;
     }
     t.nombre = nombre; t.credito = cred; t.dolar = dol;
+    t.config = { mant: mant, iva: iva, sello: sello, desde: $('tdesde').value || '' };
     extender(t, hoyISO()); marcarT(t); $('dtar').close(); render();
   }
   function abrirFechas() {
@@ -304,8 +355,60 @@
     toast('Importado: ' + nuevos.length + ' gastos' + (p.tarjetasNuevas.length ? ', ' + p.tarjetasNuevas.length + ' tarjetas' : '') + (omit ? ' · ' + omit + ' duplicados omitidos' : '') + (p.saltados ? ' · ' + p.saltados + ' ya estaban' : ''));
   }
 
+  // ---------- cerrar resumen ----------
+  var resT = null;
+  function idCierre(t, corte) { return idFijo('cierre|' + t.id + '|' + corte); }
+  function calcCierre(t, corte) {
+    var id = idCierre(t, corte), i = t.cortes.indexOf(corte);
+    var gs = gastosDe(t.id).filter(function (g) { return g.id !== id; });
+    var r = Motor.calcTarjeta({ credito: t.credito, dolar: t.dolar || 0, cortes: t.cortes, pagos: t.pagos,
+      filas: gs.map(function (g) { return { tipo: g.tipo || '', desc: g.descripcion, monto: Number(g.monto), fecha: g.fecha, cuotas: Number(g.cuotas) }; }) }, hoyISO());
+    var pagos = 0;
+    r.filas.forEach(function (f, k) { if (f.meses && esPago(gs[k])) pagos += f.meses[i]; });
+    var previo = S.gastos.filter(function (g) { return g.id === id && !g.eliminado; })[0];
+    return { id: id, i: i, saldo: r.saldo[i], pagos: pagos, total: r2(r.saldo[i] - pagos), previo: previo, est: estimarCargos(t, r, i) };
+  }
+  function abrirResumen() {
+    var t = tarjetaActual(); if (!t) return toast('Todavía no hay tarjetas.');
+    resT = t; var d = desdeEf(t), h = hoyISO(), lim = null, def = null;
+    var r = motor(t); lim = r.idxMes >= 0 ? t.cortes[r.idxMes] : t.cortes[t.cortes.length - 1];
+    var ops = t.cortes.filter(function (c) { return c >= d && c <= lim; });
+    if (!ops.length) return toast('No hay cortes para cerrar. Revisá “Se usan desde el corte del” en Editar esta tarjeta.');
+    ops.forEach(function (c) { if (c <= h) def = c; });
+    $('rtitulo').textContent = 'Cerrar resumen · ' + t.nombre;
+    $('rmes').innerHTML = ops.map(function (c) { return '<option value="' + c + '">' + fd(c) + '</option>'; }).join('');
+    $('rmes').value = def || ops[0]; $('rtotal').value = '';
+    $('dmenu').close(); refrescarResumen(); $('dres').showModal();
+  }
+  function refrescarResumen() {
+    var t = resT, c = calcCierre(t, $('rmes').value);
+    $('rcalc').innerHTML = 'La app tiene para este corte: <b>' + fmt(c.total) + '</b><br><span class="sub">saldo al corte ' + fmt(c.saldo) + ' sin contar los pagos cargados en ese corte (' + fmt(c.pagos) + ')</span>' +
+      (c.est ? '<br><span class="sub">Cargos estimados: ' + fmt(c.est.total) + '</span>' : '') +
+      (c.previo ? '<br><span class="sub">Ya hay una diferencia de ' + fmt(Number(c.previo.monto)) + ' cargada para este corte: se reemplaza.</span>' : '');
+    var v = $('rtotal').value.trim();
+    if (!v) { $('rdif').innerHTML = ''; return; }
+    var n = num(v); if (!isFinite(n)) { $('rdif').innerHTML = 'Escribí el total como número.'; return; }
+    var dif = r2(n - c.total);
+    $('rdif').innerHTML = Math.abs(dif) < 0.005 ? 'La app ya coincide con el PDF. No hace falta cargar nada.' :
+      'Diferencia a cargar: <b>' + (dif < 0 ? '-' : '') + '$' + Math.abs(dif).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '</b><br><span class="sub">' + (dif > 0 ? 'Suma a lo que se debe (mantenimiento, impuestos, intereses…).' : 'Baja lo que se debe.') + '</span>';
+  }
+  function guardarResumen() {
+    var t = resT, corte = $('rmes').value, v = $('rtotal').value.trim(); if (!v) return toast('Falta el total del PDF.');
+    var n = num(v); if (!isFinite(n) || n < 0) return toast('El total tiene que ser un número.');
+    var c = calcCierre(t, corte), dif = r2(n - c.total);
+    var g = S.gastos.filter(function (x) { return x.id === c.id; })[0];
+    if (Math.abs(dif) < 0.005) {
+      if (g && !g.eliminado) { g.eliminado = true; marcarG(g); }
+      $('dres').close(); render(); return toast('La app ya coincide con el PDF.');
+    }
+    if (!g) { g = { id: c.id, tarjeta_id: t.id, eliminado: false }; S.gastos.push(g); }
+    g.tipo = ''; g.descripcion = 'DIFERENCIA RESUMEN ' + MESES[+corte.slice(5, 7) - 1] + ' ' + corte.slice(2, 4);
+    g.monto = dif; g.fecha = corte; g.cuotas = 1; g.eliminado = false;
+    marcarG(g); $('dres').close(); render(); toast('Diferencia cargada: ' + fmt(dif));
+  }
+
   // ---------- sincronización ----------
-  function filaT(t) { return { id: t.id, nombre: t.nombre, credito: t.credito, dolar: t.dolar || 0, cortes: t.cortes, pagos: t.pagos, orden: t.orden || 0 }; }
+  function filaT(t) { var f = { id: t.id, nombre: t.nombre, credito: t.credito, dolar: t.dolar || 0, cortes: t.cortes, pagos: t.pagos, orden: t.orden || 0 }; if (S.cfgOK) f.config = t.config || {}; return f; }
   function filaG(g) { return { id: g.id, tarjeta_id: g.tarjeta_id, tipo: g.tipo || '', descripcion: g.descripcion, monto: g.monto, fecha: g.fecha, cuotas: g.cuotas, eliminado: !!g.eliminado }; }
   function pedirSync() { clearTimeout(syncTimer); syncTimer = setTimeout(sincronizar, 800); }
   function pendientes() { return Object.keys(S.out.t).length + Object.keys(S.out.g).length + S.out.dt.length; }
@@ -330,10 +433,17 @@
       var remT = {}; rt.data.forEach(function (r) { remT[r.id] = r; });
       var remG = {}; rg.data.forEach(function (r) { remG[r.id] = r; });
       S.tarjetas = S.tarjetas.filter(function (t) { return remT[t.id] || S.out.t[t.id]; });
+      var reenviar = false;
+      if (rt.data.length && ('config' in rt.data[0])) S.cfgOK = true;
       rt.data.forEach(function (r) {
         if (S.out.t[r.id]) return;
-        var n = { id: r.id, nombre: r.nombre, credito: Number(r.credito), dolar: Number(r.dolar), cortes: r.cortes || [], pagos: r.pagos || [], orden: r.orden || 0, updated_at: r.updated_at };
-        var i = S.tarjetas.findIndex(function (t) { return t.id === r.id; }); if (i >= 0) S.tarjetas[i] = n; else S.tarjetas.push(n);
+        var i = S.tarjetas.findIndex(function (t) { return t.id === r.id; });
+        var loc = i >= 0 ? S.tarjetas[i].config : null, rc = ('config' in r) ? (r.config || {}) : null;
+        var remVacio = !rc || !Object.keys(rc).length, locLleno = loc && Object.keys(loc).length;
+        var n = { id: r.id, nombre: r.nombre, credito: Number(r.credito), dolar: Number(r.dolar), cortes: r.cortes || [], pagos: r.pagos || [], orden: r.orden || 0, updated_at: r.updated_at,
+          config: (remVacio && locLleno) ? loc : (rc || {}) };
+        if (i >= 0) S.tarjetas[i] = n; else S.tarjetas.push(n);
+        if (S.cfgOK && remVacio && locLleno) { S.out.t[r.id] = Date.now() + Math.random(); reenviar = true; }
       });
       S.gastos = S.gastos.filter(function (g) { return remG[g.id] || S.out.g[g.id]; });
       rg.data.forEach(function (r) {
@@ -341,6 +451,7 @@
         var n = { id: r.id, tarjeta_id: r.tarjeta_id, tipo: r.tipo || '', descripcion: r.descripcion, monto: Number(r.monto), fecha: r.fecha, cuotas: r.cuotas, eliminado: !!r.eliminado, updated_at: r.updated_at };
         var i = S.gastos.findIndex(function (g) { return g.id === r.id; }); if (i >= 0) S.gastos[i] = n; else S.gastos.push(n);
       });
+      if (reenviar) pedirSync();
       var ext = false; S.tarjetas.forEach(function (t) { if (extender(t, hoyISO())) { marcarT(t); ext = true; } });
       guardar(); render();
       var h = new Date(); setEstado('Sincronizado ' + String(h.getHours()).padStart(2, '0') + ':' + String(h.getMinutes()).padStart(2, '0'));
@@ -437,6 +548,11 @@
   $('mLetra').onclick = cambiarTam;
   $('mCerrar').onclick = function () { $('dmenu').close(); };
   $('mSync').onclick = function () { $('dmenu').close(); sincronizar(); };
+  $('mResumen').onclick = abrirResumen;
+  $('rmes').onchange = refrescarResumen;
+  $('rtotal').oninput = refrescarResumen;
+  $('rCancel').onclick = function () { $('dres').close(); };
+  $('rGuardar').onclick = guardarResumen;
   $('mTarjeta').onclick = function () { var t = tarjetaActual(); if (!t) return toast('Todavía no hay tarjetas.'); $('dmenu').close(); abrirTarjeta(t); };
   $('mNueva').onclick = function () { $('dmenu').close(); abrirTarjeta(null); };
   $('bPrimera').onclick = function () { abrirTarjeta(null); };
