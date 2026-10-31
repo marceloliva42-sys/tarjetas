@@ -61,7 +61,7 @@
   function r2(x) { return Math.round((x + Number.EPSILON * Math.sign(x)) * 100) / 100; }
 
   // ---------- estado local ----------
-  var user = null, S = null, actual = null, filtro = 'ACTIVO', editId = null, syncing = false, syncTimer = null;
+  var user = null, S = null, actual = null, filtro = 'ACTIVO', mesSel = null, editId = null, syncing = false, syncTimer = null;
   function nuevoEstado() { return { tarjetas: [], gastos: [], out: { t: {}, g: {}, dt: [] } }; }
   function clave() { return 'mt_estado_' + user.id; }
   function guardar() { try { localStorage.setItem(clave(), JSON.stringify(S)); } catch (e) { } }
@@ -129,6 +129,23 @@
     return best;
   }
 
+  // texto "cuota 4 de 12" para un gasto, mirando el mes i
+  function cuotaTxt(g, f, i) {
+    var n = Number(g.cuotas);
+    if (g.tipo === 'DEBITO') return 'Débito automático';
+    if (g.tipo === 'PAGO') return 'Pago';
+    if (n === 100) return 'USD mensual';
+    if (!(n > 1)) return '1 pago';
+    var idx = []; (f.meses || []).forEach(function (v, j) { if (v !== 0) idx.push(j); });
+    if (!idx.length) return n + ' cuotas';
+    var k = idx.filter(function (j) { return j <= i; }).length;
+    if (k === 0) return n + ' cuotas · empieza en ' + nombreMes(idx[0]);
+    if ((f.meses[i] || 0) === 0 && k === idx.length) return 'terminó · ' + k + ' de ' + n;
+    return 'cuota ' + k + ' de ' + n + (k >= n ? ' · última' : '');
+  }
+  var tActualRender = null;
+  function nombreMes(j) { var c = tActualRender.cortes[j]; return MESES[+c.slice(5, 7) - 1] + ' ' + c.slice(2, 4); }
+
   // ---------- pantalla principal ----------
   var MESES = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC'];
   function render() {
@@ -143,7 +160,8 @@
     var t = tarjetaActual();
     $('vacio').hidden = !!t; $('detalle').hidden = !t; $('nuevo').hidden = !t;
     if (!t) return;
-    var r = motor(t);
+    var r = motor(t); tActualRender = t;
+    var iv = (mesSel != null && mesSel < t.cortes.length) ? mesSel : r.idxMes;
     $('resumen').innerHTML = [['Crédito total', fmt(t.credito)], ['Disponible', fmt(r.disponible)],
       ['Gasto del mes', r.gastoMes == null ? '—' : fmt(r.gastoMes)], ['Próx. corte', fd(r.proxCorte)],
       ['Próx. vencimiento', fd(r.proxPago)], ['Total a pagar (acumulado)', fmt(r.total)]]
@@ -155,21 +173,36 @@
     for (var i = 0; i < r.saldo.length; i++) { if (t.cortes[i] <= hoy && r.saldo[i] > 0) { pagarIdx = i; break; } }
     $('meses').innerHTML = t.cortes.map(function (c, i) {
       var m = MESES[+c.slice(5, 7) - 1] + ' ' + c.slice(2, 4);
-      return '<div class="mes' + (i === pagarIdx ? ' pagar' : '') + '"><small>' + m + (i === pagarIdx ? ' · A PAGAR' : '') + '</small><b class="' + (r.saldo[i] > 0 ? 'deb' : 'fav') + '">' + fmt(r.saldo[i]) + '</b>' +
+      return '<div class="mes' + (i === pagarIdx ? ' pagar' : '') + (mesSel === i ? ' sel' : '') + '" data-i="' + i + '"><small>' + m + (i === pagarIdx ? ' · A PAGAR' : '') + '</small><b class="' + (r.saldo[i] > 0 ? 'deb' : 'fav') + '">' + fmt(r.saldo[i]) + '</b>' +
         '<span class="sub">corte ' + fd(c).slice(0, 5) + '<br>vence ' + fd(t.pagos[i]).slice(0, 5) + '</span></div>';
     }).join('');
     var m = $('meses').children, k = pagarIdx >= 0 ? pagarIdx : Math.max(0, r.idxMes);
     if (m[k]) $('meses').scrollLeft = m[k].offsetLeft - 16;
-    $('fAct').classList.toggle('on', filtro === 'ACTIVO'); $('fTod').classList.toggle('on', filtro === 'TODOS');
-    var gs = gastosDe(t.id);
-    var items = r.filas.map(function (f, i) { return { f: f, g: gs[i] }; })
-      .filter(function (x) { return filtro === 'TODOS' || x.f.estado !== 'PAGADO'; })
-      .sort(function (a, b) { return a.g.fecha < b.g.fecha ? 1 : (a.g.fecha > b.g.fecha ? -1 : 0); });
+    $('fAct').classList.toggle('on', filtro === 'ACTIVO'); $('fTod').classList.toggle('on', filtro === 'TODOS'); $('fMes').classList.toggle('on', filtro === 'MES');
+    var gs = gastosDe(t.id), enMes = filtro === 'MES' && iv >= 0;
+    $('fMes').textContent = (mesSel != null && iv >= 0) ? nombreMes(iv) : 'Del mes';
+    var items = r.filas.map(function (f, i) { return { f: f, g: gs[i] }; });
+    if (enMes) {
+      items = items.filter(function (x) { return x.f.meses && x.f.meses[iv] !== 0 && x.f.meses[iv] !== undefined; })
+        .sort(function (a, b) { return b.f.meses[iv] - a.f.meses[iv]; });
+      var comp = 0, pag = 0, nc = 0;
+      items.forEach(function (x) { var v = x.f.meses[iv]; if (esPago(x.g)) pag += v; else { comp += v; if (Number(x.g.cuotas) > 1 && Number(x.g.cuotas) !== 100) nc++; } });
+      $('resMes').hidden = false;
+      $('resMes').innerHTML = '<b>' + nombreMes(iv) + '</b> · corte ' + fd(t.cortes[iv]) + ' · vence ' + fd(t.pagos[iv]) +
+        '<br>Gastos del mes: <b>' + fmt(comp) + '</b>' + (nc ? ' (' + nc + ' en cuotas)' : '') +
+        (pag ? '<br>Pagos cargados en ese corte: ' + fmt(pag) : '') +
+        '<br><span class="sub">Saldo acumulado a ese corte: ' + fmt(r.saldo[iv]) + '</span>';
+    } else {
+      $('resMes').hidden = true;
+      items = items.filter(function (x) { return filtro === 'TODOS' || x.f.estado !== 'PAGADO'; })
+        .sort(function (a, b) { return a.g.fecha < b.g.fecha ? 1 : (a.g.fecha > b.g.fecha ? -1 : 0); });
+    }
+    var vi = iv >= 0 ? iv : 0;
     $('lista').innerHTML = items.length ? items.map(function (x) {
-      var g = x.g, cuota = r.idxMes >= 0 ? (x.f.meses[r.idxMes] || 0) : 0;
-      var sub = g.tipo === 'DEBITO' ? 'Débito automático' : g.tipo === 'PAGO' ? 'Pago' : (Number(g.cuotas) === 100 ? 'USD mensual' : (g.cuotas > 1 ? g.cuotas + ' cuotas' : '1 pago'));
+      var g = x.g, cuota = iv >= 0 ? (x.f.meses[iv] || 0) : 0;
+      var sub = cuotaTxt(g, x.f, vi);
       return '<div class="row" data-id="' + esc(g.id) + '"><div><div class="d">' + esc(g.descripcion) + '</div><div class="m">' + fd(g.fecha) + ' · ' + sub + '</div></div>' +
-        '<div class="r"><div class="d ' + (g.monto < 0 ? 'fav' : '') + '">' + fmt(Number(g.monto)) + '</div><div class="m">mes: ' + fmt(cuota) + '</div>' +
+        '<div class="r"><div class="d ' + (g.monto < 0 ? 'fav' : '') + '">' + (enMes ? fmt(cuota) : fmt(Number(g.monto))) + '</div><div class="m">' + (enMes ? (Number(g.cuotas) > 1 && Number(g.cuotas) !== 100 ? 'total ' + fmt(Number(g.monto)) : '') : 'mes: ' + fmt(cuota)) + '</div>' +
         '<span class="tag ' + (x.f.estado === 'PAGADO' ? 'pag' : '') + '">' + x.f.estado + '</span></div></div>';
     }).join('') : '<div class="empty">No hay gastos para mostrar</div>';
   }
@@ -540,7 +573,8 @@
 
   // ---------- eventos ----------
   document.addEventListener('click', function (e) {
-    var tb = e.target.closest('.tab'); if (tb) { actual = tb.dataset.id; render(); return; }
+    var tb = e.target.closest('.tab'); if (tb) { actual = tb.dataset.id; mesSel = null; if (filtro === 'MES') filtro = 'ACTIVO'; render(); return; }
+    var mc = e.target.closest('.mes'); if (mc && mc.dataset.i !== undefined) { mesSel = +mc.dataset.i; filtro = 'MES'; render(); var l = $('resMes'); if (l && l.scrollIntoView) l.scrollIntoView({ block: 'nearest' }); return; }
     var rw = e.target.closest('.row'); if (rw) abrirGasto(rw.dataset.id);
   });
   $('nuevo').onclick = function () { abrirGasto(null); };
@@ -553,6 +587,7 @@
   });
   $('fAct').onclick = function () { filtro = 'ACTIVO'; render(); };
   $('fTod').onclick = function () { filtro = 'TODOS'; render(); };
+  $('fMes').onclick = function () { filtro = 'MES'; render(); };
   $('menu').onclick = function () { refrescarBotonAvisos(); $('dmenu').showModal(); };
   $('mAvisos').onclick = alternarAvisos;
   $('mLetra').onclick = cambiarTam;

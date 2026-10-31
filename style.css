@@ -62,3 +62,6 @@ input,select{width:100%;font:inherit;padding:10px;border:1px solid var(--line);b
 .cfgbox{border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-top:14px}
 .calc{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin-top:8px;font-size:0.875rem;line-height:1.5}
 .calc b{font-size:1rem}
+.mes{cursor:pointer}.mes.sel{background:var(--chip);border-color:var(--pri);box-shadow:0 0 0 1px var(--pri)}
+#resMes{margin:6px 0 10px}
+.seg button{white-space:nowrap}
